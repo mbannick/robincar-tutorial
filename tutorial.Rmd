@@ -1,0 +1,136 @@
+---
+title: "Tutorial for RobinCar"
+author: "Marlena Bannick"
+date: "2023-02-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(RobinCar)
+```
+
+We will use the dataset from the `speff2trial` dataset called `ACTG175`.
+
+```{r}
+data <- speff2trial::ACTG175
+data$arms <- as.factor(data$arms) # categorical treatment variable
+data$treat <- as.factor(data$treat) # binary treatment indicator
+```
+
+```{r}
+
+# Compute change in CD4 count between baseline and 20 weeks
+data$cd4.change <- as.numeric(data$cd420 - data$cd40)
+
+continuous <- robincar_glm(
+  df=data,
+  treat_col="arms",
+  response_col="cd4.change",
+  strata_cols="strat",
+  covariate_cols=c("age", "gender", "wtkg", "hemo", "oprior"),
+  car_scheme="permuted-block",
+  adj_method="heterogeneous",
+  covariate_to_include_strata=TRUE
+)
+
+```
+
+```{r}
+robincar_contrast(
+  result=continuous,
+  contrast_h="diff"
+)
+```
+
+```{r}
+# Compute change in CD4 count between baseline and 20 weeks
+data$cd4.50 <- as.numeric((data$cd40 - data$cd420)/data$cd40>0.5)
+
+# Define odds ratio
+or <- function(vec) (vec[-1]/(1-vec[-1])) / (vec[1]/(1-vec[1]))
+
+glm <- robincar_glm(
+  df=data,
+  treat_col="arms",
+  response_col="cd4.50",
+  strata_cols="strat",
+  covariate_cols=c("age", "gender", "wtkg", "hemo", "oprior"),
+  car_scheme="permuted-block",
+  adj_method="heterogeneous",
+  covariate_to_include_strata=TRUE,
+  g_family=binomial(link="logit"),
+  g_accuracy=7,
+  contrast_h=or
+)
+```
+
+```{r}
+calib <- robincar_calibrate(
+  result=glm$main,
+  joint=TRUE
+)
+```
+
+```{r}
+robincar_contrast(
+  result=calib,
+  contrast_h=or
+)
+```
+
+```{r}
+
+data01 <- data[data$arms %in% c(0, 1),]
+data01$days <- as.numeric(data01$days)
+
+# Here we need to use binary treatment for coxscore
+coxscore <- robincar_coxscore(
+  df=data01,
+  treat_col="treat",
+  response_col="days",
+  event_col="cens",
+  strata_cols="strat",
+  covariate_cols=c("age", "gender", "wtkg", "hemo", "oprior"),
+  car_scheme="permuted-block",
+  ref_arm=0,
+  p_trt=0.5
+)
+
+```
+
+```{r}
+csl <- robincar_logrank(
+  df=data01,
+  treat_col="treat",
+  response_col="days",
+  event_col="cens",
+  strata_cols="strat",
+  covariate_cols=c("age", "gender", "wtkg", "hemo", "oprior"),
+  car_scheme="permuted-block",
+  ref_arm=0,
+  p_trt=0.5,
+  adj_method="CSL"
+)
+```
+
+```{r}
+csl <- robincar_covhr(
+  df=data01,
+  treat_col="treat",
+  response_col="days",
+  event_col="cens",
+  strata_cols="strat",
+  covariate_cols=c("age", "gender", "wtkg", "hemo", "oprior"),
+  car_scheme="permuted-block",
+  ref_arm=0,
+  p_trt=0.5,
+  adj_method="CSL"
+)
+```
+
